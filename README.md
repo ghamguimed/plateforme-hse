@@ -4,7 +4,7 @@
 
 Ce dépôt est organisé pour une équipe de trois personnes. Remplacez les noms ci‑dessous par les vôtres :
 
-- **M1** – Chef de projet / Analyste
+- **M1** – Intégration de l'IA, Création de la base de données
 - **M2** – Développeur Frontend (React)
 - **M3** – Développeur Backend (API + Base de données)
 
