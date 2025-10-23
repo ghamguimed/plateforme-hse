@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  AUDITEUR_HSE
+  RESPONSABLE_HSE_OCB
+  RESPONSABLE_HSE_ST
+  CHEF_PROJET_AUDITEUR
+  ADMIN
+}
+
+enum AuditStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FindingStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  VALIDATED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  fullName  String
+  role      Role     @default(AUDITEUR_HSE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  audits    Audit[]  @relation("AuditAuthor")
+}
+
+model Audit {
+  id         String      @id @default(uuid())
+  code       String      @unique
+  site       String
+  zone       String
+  service    String
+  date       DateTime
+  status     AuditStatus @default(DRAFT)
+
+  authorId   String
+  author     User        @relation("AuditAuthor", fields: [authorId], references: [id])
+
+  findings   Finding[]
+  checklist  Json?       // snapshot des items/questions utilisés
+  score      Float?      // % conformité
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model Finding {
+  id          String       @id @default(uuid())
+  title       String
+  standardRef String       // ex: "S-HSE-SEC-31 §8.4"
+  description String
+  severity    Severity
+  status      FindingStatus @default(OPEN)
+  audit       Audit        @relation(fields: [auditId], references: [id])
+  auditId     String
+  assigneeId  String?
+  assignee    User?        @relation(fields: [assigneeId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  name      String
+  type      String   // "standard" | "checklist" | "rapport" | etc.
+  path      String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
