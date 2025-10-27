@@ -1,3 +1,4 @@
+// ---------- Prisma base ----------
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,85 +8,176 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------- Enums (mappés sur tes ENUM PostgreSQL) ----------
 enum Role {
-  AUDITEUR_HSE
-  RESPONSABLE_HSE_OCB
-  RESPONSABLE_HSE_ST
-  CHEF_PROJET_AUDITEUR
+  AUDITEUR
+  HSE
+  PM
   ADMIN
+
+  @@map("role_enum")
 }
 
-enum AuditStatus {
-  DRAFT
-  IN_PROGRESS
-  COMPLETED
+enum StatutAudit {
+  BROUILLON
+  EN_COURS
+  CLOTURE
+  VALIDE
+
+  @@map("statut_audit_enum")
 }
 
-enum Severity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
+enum Gravite {
+  FAIBLE
+  MOYENNE
+  HAUTE
+  CRITIQUE
+
+  @@map("gravite_enum")
 }
 
-enum FindingStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-  VALIDATED
+enum StatutAnomalie {
+  OUVERTE
+  EN_COURS
+  RESOLUE
+
+  @@map("statut_anomalie_enum")
 }
 
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  fullName  String
-  role      Role     @default(AUDITEUR_HSE)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum PhotoType {
+  CONSTAT
+  RESOLUTION
 
-  audits    Audit[]  @relation("AuditAuthor")
+  @@map("photo_type_enum")
+}
+
+// ---------- Modèles (mappés sur tes tables existantes) ----------
+model Service {
+  id            String        @id @db.Char(36)
+  nom           String        @db.VarChar(100)
+  utilisateurs  Utilisateur[]
+
+  @@map("service")
+}
+
+model Utilisateur {
+  id           String   @id @db.Char(36)
+  nom          String   @db.VarChar(120)
+  email        String   @unique @db.VarChar(160)
+  role         Role
+  serviceId    String?  @map("service_id") @db.Char(36)
+  actif        Boolean  @default(true)
+
+  service      Service?     @relation(fields: [serviceId], references: [id])
+  audits       Audit[]      @relation("AuditAuditeur")
+  anomaliesAssignees Anomalie[] @relation("AnomalieResponsable")
+  commentaires Commentaire[]
+
+  @@map("utilisateur")
+}
+
+model StandardHse {
+  id            String       @id @db.Char(36)
+  code          String       @db.VarChar(20)
+  libelle       String       @db.VarChar(200)
+
+  anomalies     Anomalie[]
+  checklist     ChecklistItem[]
+
+  @@map("standard_hse")
 }
 
 model Audit {
-  id         String      @id @default(uuid())
-  code       String      @unique
-  site       String
-  zone       String
-  service    String
-  date       DateTime
-  status     AuditStatus @default(DRAFT)
+  id          String        @id @db.Char(36)
+  code        String        @unique @db.VarChar(40)
+  site        String        @db.VarChar(120)
+  zone        String        @db.VarChar(120)
+  dateAudit   DateTime      @map("date_audit") @db.Date
+  statut      StatutAudit   @default(BROUILLON)
+  auditeurId  String        @map("auditeur_id") @db.Char(36)
 
-  authorId   String
-  author     User        @relation("AuditAuthor", fields: [authorId], references: [id])
+  auditeur    Utilisateur   @relation("AuditAuditeur", fields: [auditeurId], references: [id])
+  rapport     Rapport?
+  anomalies   Anomalie[]
+  photos      Photo[]
+  checklist   ChecklistItem[]
 
-  findings   Finding[]
-  checklist  Json?       // snapshot des items/questions utilisés
-  score      Float?      // % conformité
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  @@map("audit")
 }
 
-model Finding {
-  id          String       @id @default(uuid())
-  title       String
-  standardRef String       // ex: "S-HSE-SEC-31 §8.4"
-  description String
-  severity    Severity
-  status      FindingStatus @default(OPEN)
-  audit       Audit        @relation(fields: [auditId], references: [id])
-  auditId     String
-  assigneeId  String?
-  assignee    User?        @relation(fields: [assigneeId], references: [id])
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+model Rapport {
+  id        String   @id @db.Char(36)
+  auditId   String   @unique @map("audit_id") @db.Char(36)
+  urlPdf    String   @map("url_pdf") @db.VarChar(500)
+  genereLe  DateTime @map("genere_le")
+
+  audit     Audit    @relation(fields: [auditId], references: [id])
+
+  @@map("rapport")
 }
 
-model Document {
-  id        String   @id @default(uuid())
-  name      String
-  type      String   // "standard" | "checklist" | "rapport" | etc.
-  path      String
-  meta      Json?
-  createdAt DateTime @default(now())
+model Anomalie {
+  id                 String          @id @db.Char(36)
+  auditId            String          @map("audit_id") @db.Char(36)
+  titre              String          @db.VarChar(200)
+  description        String
+  standardId         String?         @map("standard_id") @db.Char(36)
+  gravite            Gravite
+  statut             StatutAnomalie  @default(OUVERTE)
+  responsableHseId   String?         @map("responsable_hse_id") @db.Char(36)
+  dueDate            DateTime?       @map("due_date") @db.Date
+  createdAt          DateTime        @map("created_at") @default(now())
+
+  audit              Audit           @relation(fields: [auditId], references: [id])
+  standard           StandardHse?    @relation(fields: [standardId], references: [id])
+  responsableHse     Utilisateur?    @relation("AnomalieResponsable", fields: [responsableHseId], references: [id])
+  photos             Photo[]
+  commentaires       Commentaire[]
+
+  @@index([responsableHseId, statut], name: "idx_anomalie_responsable")
+  @@index([auditId, statut], name: "idx_anomalie_audit")
+  @@map("anomalie")
+}
+
+model Photo {
+  id        String     @id @db.Char(36)
+  auditId   String?    @map("audit_id") @db.Char(36)
+  anomalieId String?   @map("anomalie_id") @db.Char(36)
+  url       String     @db.VarChar(500)
+  type      PhotoType
+  creeLe    DateTime   @map("cree_le") @default(now())
+
+  audit     Audit?     @relation(fields: [auditId], references: [id])
+  anomalie  Anomalie?  @relation(fields: [anomalieId], references: [id])
+
+  @@index([anomalieId], name: "idx_photo_anomalie")
+  @@index([auditId], name: "idx_photo_audit")
+  @@map("photo")
+}
+
+model Commentaire {
+  id         String    @id @db.Char(36)
+  anomalieId String    @map("anomalie_id") @db.Char(36)
+  auteurId   String    @map("auteur_id") @db.Char(36)
+  texte      String
+  creeLe     DateTime  @map("cree_le") @default(now())
+
+  anomalie   Anomalie  @relation(fields: [anomalieId], references: [id])
+  auteur     Utilisateur @relation(fields: [auteurId], references: [id])
+
+  @@map("commentaire")
+}
+
+model ChecklistItem {
+  id         String       @id @db.Char(36)
+  auditId    String       @map("audit_id") @db.Char(36)
+  standardId String?      @map("standard_id") @db.Char(36)
+  intitule   String       @db.VarChar(200)
+  conforme   Boolean      @default(false)
+  remarque   String?      @db.VarChar(500)
+
+  audit      Audit        @relation(fields: [auditId], references: [id])
+  standard   StandardHse? @relation(fields: [standardId], references: [id])
+
+  @@map("checklist_item")
 }
